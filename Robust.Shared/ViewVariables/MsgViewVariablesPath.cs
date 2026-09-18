@@ -59,7 +59,7 @@ internal abstract class MsgViewVariablesPathReqVal : MsgViewVariablesPathReq
     public override void WriteToBuffer(NetOutgoingMessage buffer, IRobustSerializer serializer)
     {
         base.WriteToBuffer(buffer, serializer);
-        buffer.Write(Value);
+        buffer.Write(Value ?? string.Empty); // Arcane
     }
 }
 
@@ -94,13 +94,18 @@ internal abstract class MsgViewVariablesPathRes : MsgViewVariablesPath
     public override void WriteToBuffer(NetOutgoingMessage buffer, IRobustSerializer serializer)
     {
         base.WriteToBuffer(buffer, serializer);
-        buffer.Write((ushort)ResponseCode);
-        buffer.Write(Response.Length);
+        // Arcane-start
+        var response = Response ?? Array.Empty<string>();
+        Response = response;
 
-        foreach (var value in Response)
+        buffer.Write((ushort)ResponseCode);
+        buffer.Write(response.Length);
+
+        foreach (var value in response)
         {
-            buffer.Write(value);
+            buffer.Write(value ?? string.Empty);
         }
+        // Arcane-end
     }
 }
 
