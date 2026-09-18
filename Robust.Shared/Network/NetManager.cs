@@ -956,12 +956,22 @@ namespace Robust.Shared.Network
             }
             catch (InvalidCastException ice)
             {
-                _logger.Error($"{msg.SenderConnection.RemoteEndPoint}: Wrong deserialization of {type.Name} packet:\n{ice}");
+                // Arcane-start
+                // _logger.Error($"{msg.SenderConnection.RemoteEndPoint}: Wrong deserialization of {type.Name} packet:\n{ice}");
+                channel.Disconnect($"Malformed packet: {type.Name} ({ice.GetType().Name})");
+                return true;
+            }
+            catch (OutOfMemoryException oom)
+            {
+                // _logger.Error($"{msg.SenderConnection.RemoteEndPoint}: Failed to deserialize {type.Name} packet due to OOM:\n{oom}");
+                channel.Disconnect($"Malformed packet: {type.Name} ({oom.GetType().Name})");
                 return true;
             }
             catch (Exception e) // yes, we want to catch ALL exeptions for security
             {
-                _logger.Error($"{msg.SenderConnection.RemoteEndPoint}: Failed to deserialize {type.Name} packet:\n{e}");
+                // _logger.Error($"{msg.SenderConnection.RemoteEndPoint}: Failed to deserialize {type.Name} packet:\n{e}");
+                channel.Disconnect($"Malformed packet: {type.Name} ({e.GetType().Name})");
+                // Arcane-start
                 return true;
             }
 
