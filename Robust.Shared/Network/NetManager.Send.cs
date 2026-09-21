@@ -55,6 +55,9 @@ public sealed partial class NetManager
         NetChannel channel,
         NetMessage message)
     {
+        if (channel.IsDisconnecting)
+            return;
+
         if (!channel.IsConnected)
         {
             _logger.Error(
@@ -112,10 +115,15 @@ public sealed partial class NetManager
 
     private static void CoreEncryptSendMessage(NetChannel channel, EncryptChannelItem item)
     {
+        // Messages can wait in the encryption queue while the recipient disconnects.
+        if (channel.IsDisconnecting || !channel.IsConnected)
+            return;
+
         channel.Encryption?.Encrypt(item.Message);
 
         var result = channel.Connection.Peer.SendMessage(item.Message, channel.Connection, item.Method);
-        if (result is not (NetSendResult.Sent or NetSendResult.Queued))
+        if (result is not (NetSendResult.Sent or NetSendResult.Queued)
+            && (result != NetSendResult.FailedNotConnected || channel.IsConnected))
         {
             // Logging stack trace here won't be useful as it'll likely be thread pooled on production scenarios.
             item.Owner._logger.Warning(

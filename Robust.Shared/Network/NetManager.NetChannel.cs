@@ -49,6 +49,9 @@ namespace Robust.Shared.Network
 
             public bool IsHandshakeComplete { get; set; }
 
+            // Lidgren processes disconnects on its network thread. Stop accepting messages immediately.
+            public volatile bool IsDisconnecting;
+
             // Only used on server, contains the encryption to use for this channel.
             public NetEncryption? Encryption { get; set; }
 
@@ -99,7 +102,10 @@ namespace Robust.Shared.Network
             public void Disconnect(string reason, bool sendBye)
             {
                 if (_connection.Status == NetConnectionStatus.Connected)
+                {
+                    IsDisconnecting = true;
                     _connection.Disconnect(reason, sendBye);
+                }
             }
 
             public override string ToString()

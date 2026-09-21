@@ -910,6 +910,10 @@ namespace Robust.Shared.Network
                 return true;
             }
 
+            // Disconnect is asynchronous in Lidgren. Ignore packets already queued for a rejected channel.
+            if (channel.IsDisconnecting || !channel.IsConnected)
+                return true;
+
             channel.Encryption?.Decrypt(msg);
 
             var id = msg.ReadByte();
