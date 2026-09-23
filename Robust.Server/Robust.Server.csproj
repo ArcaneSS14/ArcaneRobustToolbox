@@ -12,6 +12,11 @@
     <RobustILLink>true</RobustILLink>
     <NoWarn>CA1416</NoWarn>
   </PropertyGroup>
+  <!-- Arcane-start -->
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="5" />
+  </ItemGroup>
+  <!-- Arcane-end -->
   <ItemGroup>
     <PackageReference Include="JetBrains.Annotations" PrivateAssets="All" />
     <PackageReference Include="SpaceWizards.HttpListener" PrivateAssets="compile" />

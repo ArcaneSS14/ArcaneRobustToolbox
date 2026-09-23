@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel; // Arcane
 using System.Diagnostics.Metrics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -21,7 +22,64 @@ internal static class ResizableMemoryRegionMetrics
     public const string GaugeName = "used_bytes";
 }
 
-// TODO: Proper implementation on Linux that uses mmap()/madvise()/mprotect().
+// Arcane-start
+internal static unsafe class LinuxMemoryRegion
+{
+    private const int ProtNone = 0;
+    private const int ProtReadWrite = 1 | 2;
+    private const int MapPrivateAnonymousNoReserve = 2 | 0x20 | 0x4000;
+    private const int MadvDontNeed = 4;
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern void* mmap(void* address, nuint length, int protection, int flags, int fileDescriptor, nint offset);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int mprotect(void* address, nuint length, int protection);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int madvise(void* address, nuint length, int advice);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int munmap(void* address, nuint length);
+
+    public static void* Reserve(nuint length)
+    {
+        var address = mmap(null, length, ProtNone, MapPrivateAnonymousNoReserve, -1, 0);
+        if (address == (void*)(-1))
+            throw new Win32Exception(Marshal.GetLastPInvokeError());
+
+        return address;
+    }
+
+    public static void Commit(void* address, nuint length)
+    {
+        if (length != 0 && mprotect(address, length, ProtReadWrite) != 0)
+            throw new Win32Exception(Marshal.GetLastPInvokeError());
+    }
+
+    public static void Decommit(void* address, nuint length)
+    {
+        if (length == 0)
+            return;
+
+        if (mprotect(address, length, ProtNone) != 0)
+            throw new Win32Exception(Marshal.GetLastPInvokeError());
+
+        if (madvise(address, length, MadvDontNeed) == 0)
+            return;
+
+        var error = Marshal.GetLastPInvokeError();
+        Commit(address, length);
+        throw new Win32Exception(error);
+    }
+
+    public static void Release(void* address, nuint length)
+    {
+        if (munmap(address, length) != 0)
+            throw new Win32Exception(Marshal.GetLastPInvokeError());
+    }
+}
+// Arcane-end
 
 /// <summary>
 /// An unmanaged region of memory that can be dynamically resized without requiring copying.
@@ -107,6 +165,12 @@ internal sealed unsafe class ResizableMemoryRegion<T> : IDisposable where T : un
             if (BaseAddress == null)
                 Marshal.ThrowExceptionForHR(Marshal.GetHRForLastWin32Error());
         }
+        // Arcane-start
+        else if (OperatingSystem.IsLinux())
+        {
+            BaseAddress = (T*)LinuxMemoryRegion.Reserve(maxByteSize);
+        }
+        // Arcane-end
         else
         {
             // Non-Windows systems use some form of overcommit,
@@ -160,6 +224,15 @@ internal sealed unsafe class ResizableMemoryRegion<T> : IDisposable where T : un
             if (ret == null)
                 Marshal.ThrowExceptionForHR(Marshal.GetHRForLastWin32Error());
         }
+        // Arcane-start
+        else if (OperatingSystem.IsLinux())
+        {
+            var previousPageSize = MathHelper.CeilMultipleOfPowerOfTwo(
+                (nuint)sizeof(T) * (nuint)previousSize, (nuint)Environment.SystemPageSize);
+            var newPageSize = MathHelper.CeilMultipleOfPowerOfTwo(newByteSize, (nuint)Environment.SystemPageSize);
+            LinuxMemoryRegion.Commit((byte*)BaseAddress + previousPageSize, newPageSize - previousPageSize);
+        }
+        // Arcane-end
         else
         {
             // Nada. On overcommit systems we don't need to do anything.
@@ -167,7 +240,7 @@ internal sealed unsafe class ResizableMemoryRegion<T> : IDisposable where T : un
 
         CurrentSize = newElementSize;
 
-        Interlocked.Add(ref _memoryUsed, (newElementSize - previousSize) * sizeof(T));
+        Interlocked.Add(ref _memoryUsed, (long)(newElementSize - previousSize) * sizeof(T)); // Arcane
     }
 
     /// <summary>
@@ -198,14 +271,22 @@ internal sealed unsafe class ResizableMemoryRegion<T> : IDisposable where T : un
 
         // If the new max size cuts a page in the middle we can't free it so round up to the next page.
         var newPageSize = MathHelper.CeilMultipleOfPowerOfTwo(newByteSize, (nuint)Environment.SystemPageSize);
+        var currentPageSize = MathHelper.CeilMultipleOfPowerOfTwo(currentByteSize, (nuint)Environment.SystemPageSize); // Arcane
         if (OperatingSystem.IsWindows())
         {
             var freeBaseAddress = (byte*)BaseAddress + newPageSize;
-            var freeLength = currentByteSize - newPageSize;
-            var result = VirtualFree(freeBaseAddress, freeLength, MEM_DECOMMIT);
-            if (!result)
+            // Arcane-start
+            var freeLength = currentPageSize - newPageSize;
+            if (freeLength != 0 && !VirtualFree(freeBaseAddress, freeLength, MEM_DECOMMIT))
                 Marshal.ThrowExceptionForHR(Marshal.GetHRForLastWin32Error());
+            // Arcane-end
         }
+        // Arcane-start
+        else if (OperatingSystem.IsLinux())
+        {
+            LinuxMemoryRegion.Decommit((byte*)BaseAddress + newPageSize, currentPageSize - newPageSize);
+        }
+        // Arcane-end
         else
         {
             // Nothing to do on operating systems without advanced memory management.
@@ -213,7 +294,7 @@ internal sealed unsafe class ResizableMemoryRegion<T> : IDisposable where T : un
 
         CurrentSize = newElementSize;
 
-        Interlocked.Add(ref _memoryUsed, (long)(newByteSize - currentByteSize));
+        Interlocked.Add(ref _memoryUsed, -(long)(currentByteSize - newByteSize)); // Arcane
     }
 
     /// <summary>
@@ -318,12 +399,18 @@ internal sealed unsafe class ResizableMemoryRegion<T> : IDisposable where T : un
             if (!result)
                 Marshal.ThrowExceptionForHR(Marshal.GetHRForLastWin32Error());
         }
+        // Arcane-start
+        else if (OperatingSystem.IsLinux())
+        {
+            LinuxMemoryRegion.Release(BaseAddress, (nuint)sizeof(T) * (nuint)MaxSize);
+        }
+        // Arcane-end
         else
         {
             NativeMemory.Free(BaseAddress);
         }
 
-        Interlocked.Add(ref _memoryUsed, -CurrentSize * sizeof(T));
+        Interlocked.Add(ref _memoryUsed, -(long)CurrentSize * sizeof(T)); // Arcane
 
         BaseAddress = null;
         CurrentSize = 0;
