@@ -132,6 +132,11 @@ internal sealed partial class PvsSystem
         _incomingReturns.Clear();
         _pendingReturns.Clear();
         _deletionJob.ToClear.Clear();
+        // Arcane-start
+        _incomingReturns.TrimExcess();
+        _pendingReturns.TrimExcess();
+        _deletionJob.ToClear.TrimExcess();
+        // Arcane-end
         _assignedEnts.Clear();
 
         // Remove all pointers stored in any player's PVS send-histories. Required to avoid accidentally writing to
@@ -142,6 +147,8 @@ internal sealed partial class PvsSystem
             session.DataMemory.Clear();
             ForceFullState(session);
         }
+
+        _entDataListPool = CreateEntDataListPool(); // Arcane
 
         _metadataMemory.Clear();
     }

@@ -16,8 +16,12 @@ internal sealed partial class PvsSystem
     /// </summary>
     private const int MaxVisPoolSize = 1024;
 
-    private readonly ObjectPool<List<PvsIndex>> _entDataListPool
-        = new DefaultObjectPool<List<PvsIndex>>(new ListPolicy<PvsIndex>(), MaxVisPoolSize);
+    // Arcane-start
+    private ObjectPool<List<PvsIndex>> _entDataListPool = CreateEntDataListPool();
+
+    private static ObjectPool<List<PvsIndex>> CreateEntDataListPool()
+        => new DefaultObjectPool<List<PvsIndex>>(new ListPolicy<PvsIndex>(), MaxVisPoolSize);
+    // Arcane-end
 
     private readonly ObjectPool<HashSet<EntityUid>> _uidSetPool
         = new DefaultObjectPool<HashSet<EntityUid>>(new SetPolicy<EntityUid>(), MaxVisPoolSize);
