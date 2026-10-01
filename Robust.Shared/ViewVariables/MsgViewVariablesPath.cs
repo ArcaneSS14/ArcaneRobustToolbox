@@ -83,6 +83,11 @@ internal abstract class MsgViewVariablesPathRes : MsgViewVariablesPath
         base.ReadFromBuffer(buffer, serializer);
         ResponseCode = (ViewVariablesResponseCode) buffer.ReadUInt16();
         var length = buffer.ReadInt32();
+        // Arcane-start
+        // Every string needs at least one byte for its encoded length.
+        if (length < 0 || length > (buffer.LengthBits - buffer.Position) / 8)
+            throw new InvalidDataException("Invalid ViewVariables response length.");
+        // Arcane-end
         Response = new string[length];
 
         for (var i = 0; i < length; i++)
@@ -162,6 +167,11 @@ internal sealed class MsgViewVariablesListPathReq : MsgViewVariablesPathReq
     {
         base.ReadFromBuffer(buffer, serializer);
         var length = buffer.ReadInt32();
+        // Arcane-start
+        // Validate before renting storage based on an untrusted length.
+        if (length < 0 || length > (buffer.LengthBits - buffer.Position) / 8)
+            throw new InvalidDataException("Invalid ViewVariables options length.");
+        // Arcane-end
         using var stream = RobustMemoryManager.GetMemoryStream(length);
         buffer.ReadAlignedMemory(stream, length);
         Options = serializer.Deserialize<VVListPathOptions>(stream);
